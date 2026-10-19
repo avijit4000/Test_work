@@ -8,6 +8,11 @@ The repository is intentionally minimal: it contains one hands-on Jupyter notebo
 - **Default branch:** `main`
 - **Primary language:** Python (Jupyter Notebook)
 
+<!-- LAST-UPDATED:START -->**Last updated:** 2026-10-19 (IST)<!-- LAST-UPDATED:END -->
+
+> A Windows scheduled task (`GitDailyGreeter`) rewrites the date above and appends a greeting to the
+> [Daily Check-in Log](#daily-check-in-log) every morning at **08:00 IST**, then commits and pushes it.
+
 ---
 
 ## Table of Contents
@@ -18,7 +23,9 @@ The repository is intentionally minimal: it contains one hands-on Jupyter notebo
 - [Pandas_intro.ipynb — Walkthrough](#pandas_introipynb--walkthrough)
 - [Requirements](#requirements)
 - [Getting Started](#getting-started)
+- [Daily Automation — GitDailyGreeter.exe](#daily-automation--gitdailygreeterexe)
 - [Project Status and Known Limitations](#project-status-and-known-limitations)
+- [Daily Check-in Log](#daily-check-in-log)
 - [Author](#author)
 - [License](#license)
 
@@ -30,10 +37,11 @@ The repository is intentionally minimal: it contains one hands-on Jupyter notebo
 | --- | --- |
 | Purpose | Educational / learning sandbox for data analysis with Pandas |
 | Project type | Notebook-based exploration — not a packaged application |
-| Total tracked files | 4 |
+| Total tracked files | 8 |
 | Notebooks | 2 (`Pandas_intro.ipynb`, `jeow.ipynb`) |
+| Top-level scripts | `daily_update.py` (automation), `build.ps1` (build) |
 | Source packages / modules | None |
-| Build system | None |
+| Build system | PyInstaller for the automation executable |
 | Tests | None |
 | CI/CD | None |
 | License | None specified |
@@ -50,7 +58,12 @@ Test_work/
 ├── Pandas_intro.ipynb    # Pandas tutorial notebook — the main content of this repo
 ├── jeow.ipynb            # Empty notebook (placeholder, 0 bytes)
 ├── file                  # Plain-text scratch file ("this is ok.")
-└── README.md             # This document
+├── README.md             # This document
+├── daily_update.py       # Daily README updater + Task Scheduler installer
+├── build.ps1             # Builds dist\GitDailyGreeter.exe with PyInstaller
+├── .gitignore            # Ignores build artefacts and virtual environments
+└── dist/                 # Build output (git-ignored)
+    └── GitDailyGreeter.exe
 ```
 
 ---
@@ -83,6 +96,13 @@ A completely empty notebook kept as a placeholder for future experiments.
 ### `file`
 
 A one-line plain-text scratch file containing `this is ok.` — not used by any code.
+
+### `daily_update.py` and `build.ps1`
+
+The automation behind the daily README update — see
+[Daily Automation — GitDailyGreeter.exe](#daily-automation--gitdailygreeterexe) for behaviour,
+commands and build steps. `daily_update.py` is plain standard-library Python (3.9+) and needs no
+third-party packages at runtime.
 
 ---
 
@@ -230,7 +250,90 @@ pip install pandas matplotlib jupyter
 | Open the tutorial directly | `jupyter notebook Pandas_intro.ipynb` |
 | Run as a script (optional) | `jupyter nbconvert --to script Pandas_intro.ipynb` |
 
-There are **no** build, lint, or test commands in this repository.
+The notebook itself has **no** build, lint, or test commands. The automation component in this
+repository is compiled with `build.ps1` — see the next section.
+
+---
+
+## Daily Automation — GitDailyGreeter.exe
+
+`GitDailyGreeter.exe` is a small Windows utility that keeps this README alive. A Windows Task
+Scheduler entry runs it **every day at 08:00 IST**; the program then:
+
+1. Rewrites the `Last updated` stamp at the top of this README with the current IST date.
+2. Inserts a new row at the top of the [Daily Check-in Log](#daily-check-in-log) containing the date
+   and a *Good morning* greeting.
+3. Runs `git pull --rebase --autostash`, commits **only** `README.md`, and pushes to `origin`.
+
+Re-running it on the same day is safe: the log row is replaced, not duplicated, and no commit is
+created when nothing changed.
+
+### Files
+
+| File | Purpose |
+| --- | --- |
+| `daily_update.py` | Source of the utility — README stamping, git push, task installation |
+| `build.ps1` | Builds the standalone executable into `dist\GitDailyGreeter.exe` |
+| `dist\GitDailyGreeter.exe` | Compiled executable (not tracked by git) |
+
+### Install
+
+Build the executable first (see [Building the executable](#building-the-executable)), then run:
+
+```powershell
+.\dist\GitDailyGreeter.exe --install --repo "d:\Work\test_softeare"
+```
+
+`--install` performs three actions:
+
+1. Copies the executable to `%LOCALAPPDATA%\GitDailyGreeter\GitDailyGreeter.exe`, so the scheduled
+   task keeps working even if the repository folder is moved or `dist\` is cleaned.
+2. Writes `%LOCALAPPDATA%\GitDailyGreeter\config.json` with the repository path, branch and time.
+3. Registers the Task Scheduler entry **GitDailyGreeter** (`Daily`, 08:00 IST) for the current user,
+   with *Start when available* enabled so a missed run happens as soon as the PC wakes up.
+
+Add `--run-now` to push the first update immediately after installing:
+
+```powershell
+.\dist\GitDailyGreeter.exe --install --repo "d:\Work\test_softeare" --run-now
+```
+
+### Commands
+
+| Command | What it does |
+| --- | --- |
+| `GitDailyGreeter.exe --install [--repo PATH] [--time 08:00] [--run-now]` | Installs the utility and registers the daily task |
+| `GitDailyGreeter.exe --uninstall` | Removes the scheduled task and the stored config |
+| `GitDailyGreeter.exe --status` | Shows config, task state, last/next run and last log lines |
+| `GitDailyGreeter.exe --run` | Performs one update + commit + push (used by the task) |
+| `GitDailyGreeter.exe --run --dry-run` | Updates `README.md` locally without committing or pushing |
+| `GitDailyGreeter.exe --help` | Prints usage |
+
+### Logs and troubleshooting
+
+- Every run appends to `%LOCALAPPDATA%\GitDailyGreeter\logs\YYYY-MM.log`.
+- `--status` prints the last run result reported by Task Scheduler.
+- The push needs cached GitHub credentials (Git Credential Manager) for the account that owns the
+  task. Run `git push` once manually if the push step starts failing with authentication errors.
+- The task runs under the signed-in user, so the machine must be on and the user logged in for the
+  push to happen; *Start when available* covers missed runs after a shutdown.
+- On a machine that is **not** set to IST, `--install` converts 08:00 IST into the equivalent local
+  clock time automatically (for example 02:30 on a UTC machine) and prints the resolved time.
+
+### Building the executable
+
+```powershell
+pip install pyinstaller
+.\build.ps1
+```
+
+or manually:
+
+```powershell
+pyinstaller --onefile --name GitDailyGreeter --clean daily_update.py
+```
+
+The result is `dist\GitDailyGreeter.exe` — a single self-contained file with no Python dependency.
 
 ---
 
@@ -243,6 +346,21 @@ There are **no** build, lint, or test commands in this repository.
 - **No dependency pinning:** library versions are not declared, so results may vary across Pandas/Matplotlib releases.
 - **Undocumented cells:** the notebook contains only code cells — there is no narrative Markdown between steps.
 - **No CI:** no GitHub Actions or other pipelines are configured.
+- **Automation dependency:** the daily README update relies on a local Windows scheduled task and on
+  valid git credentials; it is not part of a CI pipeline.
+
+---
+
+## Daily Check-in Log
+
+Each morning at 08:00 IST the scheduled task adds one row below, newest first. The table is
+maintained automatically — edit it by hand only if you also keep it consistent with the script.
+
+<!-- DAILY-LOG:START -->
+| Date (IST) | Greeting |
+| --- | --- |
+| 2026-10-19 | Good morning! Today is Monday, 19 October 2026. |
+<!-- DAILY-LOG:END -->
 
 ---
 
